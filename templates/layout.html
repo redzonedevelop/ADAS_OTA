@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>{{ title }}</title>
+    <style>
+        body { margin: 0; font-family: Arial; }
+        .sidebar {
+            height: 100vh;
+            width: 200px;
+            position: fixed;
+            left: 0;
+            top: 0;
+            background-color: #f4f4f4;
+            padding-top: 20px;
+        }
+        .sidebar h3, .sidebar p, .sidebar a {
+            margin: 10px;
+            padding: 5px;
+            text-decoration: none;
+            display: block;
+            color: black;
+        }
+        .sidebar a:hover {
+            background-color: #ddd;
+        }
+        .content {
+            margin-left: 210px;
+            padding: 20px;
+        }
+        .logout {
+            color: red;
+            cursor: pointer;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+
+<div class="sidebar">
+    <h3>로그인 정보</h3>
+    <p>ID: <strong>id</strong></p>
+    <form action="{{ url_for('logout') }}" method="post">
+        <button type="submit" class="logout">로그아웃</button>
+    </form>
+    <hr>
+    <a href="{{ url_for('upload_page') }}">📤 펌웨어 업로드</a>
+</div>
+
+<div class="content">
+    {% block content %}{% endblock %}
+</div>
+
+</body>
+</html>
