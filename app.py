@@ -1,9 +1,13 @@
 from flask import Flask, render_template, request, redirect, url_for, session, flash
 import os
 from crypto import crypto
+import boto3
 
 app = Flask(__name__)
 app.secret_key = 'redzone'
+
+S3_BUCKET = 'redzone-ota-bucket'
+s3 = boto3.client('s3')
 
 @app.route('/')
 def login_page():
@@ -34,6 +38,30 @@ def logout():
 
 @app.route('/upload')
 def upload_page():
+    # if 'user' not in session:
+    #     flash("로그인이 필요합니다.")
+    #     return redirect(url_for('login_page'))
+    # session.clear()
+    return render_template('upload.html')
+
+@app.route('/upload_file', methods=['POST'])
+def upload_file():
+    version = request.form['version']
+    ecu = request.form['ecu']
+    file = request.files['file']
+
+    if file:
+        original_filename = file.filename
+        _, ext = os.path.splitext(original_filename)
+        ext = ext.lstrip('.')
+
+        s3_filename = f"{ecu}_{version}.{ext}"
+        s3.upload_fileobj(file, S3_BUCKET, s3_filename)
+
+        flash(f"{s3_filename} 업로드 완료 (버전: {version}, ECU: {ecu})")
+    else:
+        flash("파일이 없습니다!")
+
     return render_template('upload.html')
 
 if __name__ == '__main__':
