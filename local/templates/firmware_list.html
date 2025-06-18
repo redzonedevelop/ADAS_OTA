@@ -1,0 +1,25 @@
+{% extends "layout.html" %}
+
+{% block content %}
+    <h2>ECU 펌웨어 목록</h2>
+    {% for ecu_id, firmware_list in ecu_data.items() %}
+        <h3>{{ ecu_map[ecu_id] }}</h3>
+        <table border="1" cellpadding="5">
+            <tr>
+                <th>버전</th>
+                <th>파일명</th>
+                <th>크기(Bytes)</th>
+                <th>업로드 시각</th>
+            </tr>
+            {% for fw in firmware_list %}
+            <tr>
+                <td>{{ fw.version }}</td>
+                <td>{{ fw.file_name }}</td>
+                <td>{{ fw.file_size }}</td>
+                <td>{{ fw.upload_datetime }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+        <br>
+    {% endfor %}
+{% endblock %}
