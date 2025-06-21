@@ -4,7 +4,7 @@
     <h2>ECU 펌웨어 목록</h2>
     {% for ecu_id, firmware_list in ecu_data.items() %}
         <h3>{{ ecu_map[ecu_id] }}</h3>
-        <table border="1" cellpadding="5">
+        <table border="1" cellpadding="5" style="border-collapse: collapse;">
             <tr>
                 <th>버전</th>
                 <th>파일명</th>

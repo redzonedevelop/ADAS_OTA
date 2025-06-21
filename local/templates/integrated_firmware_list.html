@@ -1,0 +1,47 @@
+{% extends "layout.html" %}
+
+{% block content %}
+    <h2>통합 펌웨어 목록</h2>
+    <table border="1" cellpadding="5" style="border-collapse: collapse;">
+        <tr>
+            <th>ID</th>
+            <th>버전명</th>
+            <th>Motor</th>
+            <th>Transmission</th>
+            <th>BMS</th>
+            <th>ABS</th>
+            <th>Brake</th>
+            <th>Steering</th>
+            <th>ADAS</th>
+            <th>VUM</th>
+            <th>Telematic</th>
+            <th>Rain</th>
+            <th>Illuminate</th>
+            <th>Light</th>
+            <th>Seat</th>
+            <th>OBD</th>
+            <th>Cluster</th>
+            <th>배포 시각</th>
+            <th>재배포</th>
+        </tr>
+        {% for row in rows %}
+        <tr>
+            <td>{{ row[0] }}</td>
+            <td>{{ row[1] }}</td>
+            {% for i in range(2, 17) %}
+                <td>{{ row[i] if row[i] else '-' }}</td>
+            {% endfor %}
+            <td>{{ row[17] }}</td>
+            <td>
+                {% if loop.first %}
+                    <form action="{{ url_for('redeploy_firmware', firmware_id=row[0]) }}" method="post">
+                        <button type="submit">🔄 재배포</button>
+                    </form>
+                {% else %}
+                -
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </table>
+{% endblock %}

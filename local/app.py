@@ -30,21 +30,21 @@ aes_key = bytes.fromhex(aes_key_hex)
 private_key_path = "key/Private_key1.pem"
 
 ecu_map = {
-    1: "Motor",
-    2: "Transmission",
-    3: "BMS",
-    4: "ABS",
-    5: "Brake",
+    0: "Motor",
+    1: "Transmission",
+    2: "BMS",
+    5: "ABS",
+    4: "Brake",
     6: "Steering",
-    7: "ADAS",
-    8: "VUM",
-    9: "Telematic",
-    10: "Rain",
-    11: "Illuminate",
-    12: "Light",
-    13: "Seat",
-    14: "OBD",
-    15: "Cluster"
+    8: "ADAS",
+    20: "VUM",
+    21: "Telematic",
+    12: "Rain",
+    13: "Illuminate",
+    14: "Light",
+    15: "Seat",
+    16: "OBD",
+    17: "Cluster"
 }
 
 KST = timezone(timedelta(hours=9))
@@ -82,7 +82,7 @@ def upload_page():
 
 @app.route('/upload_file', methods=['POST'])
 def upload_file():
-    version = request.form['version']
+    version = int(request.form['version'])
     ecu_id = int(request.form['ecu'])
     ecu = ecu_map.get(ecu_id, "Unknown")
     file = request.files['file']
@@ -141,7 +141,7 @@ def firmware_list():
         cursor = conn.cursor(pymysql.cursors.DictCursor)
 
         result = {}
-        ecu_ids_to_show = [1, 10, 11, 12]
+        ecu_ids_to_show = [0, 1, 20, 14, 15]
 
         for ecu_id in ecu_ids_to_show:
             cursor.execute("SELECT * FROM ecu_firmware WHERE ecu_id = %s ORDER BY upload_datetime DESC", (ecu_id,))
@@ -216,8 +216,10 @@ def release_page():
     )
 
 def save_integrated_firmware_to_db(version_name, request_form):
+    ecu_ids = [0, 1, 2, 5, 4, 6, 8, 20, 21, 12, 13, 14, 15, 16, 17]
+    
     firmware_ids = {}
-    for ecu_id in range(1, 16):
+    for ecu_id in ecu_ids:
         value = request_form.get(f'ecu_{ecu_id}')
         firmware_ids[ecu_id] = int(value) if value and value.lower() not in ['none', '0'] else None
 
@@ -242,12 +244,7 @@ def save_integrated_firmware_to_db(version_name, request_form):
         )
         """
 
-        values = [
-            version_name,
-            firmware_ids[1], firmware_ids[2], firmware_ids[3], firmware_ids[4], firmware_ids[5],
-            firmware_ids[6], firmware_ids[7], firmware_ids[8], firmware_ids[9], firmware_ids[10],
-            firmware_ids[11], firmware_ids[12], firmware_ids[13], firmware_ids[14], firmware_ids[15]
-        ]
+        values = [int(version_name)] + [firmware_ids[ecu_id] for ecu_id in ecu_ids]
 
         cursor.execute(sql, values)
         conn.commit()
@@ -286,7 +283,7 @@ def send_firmware_via_mqtt(firmware_ids):
                 file_size = row[2]
                 ecu_name = ecu_map.get(ecu_id, f"ecu{ecu_id}")
 
-                metadata_str = f"ecu_name:{ecu_name},version:{version},file_name:{file_name},file_size:{file_size}"
+                metadata_str = f"ecu_id:{ecu_id},version:{version},file_name:{file_name},file_size:{file_size}"
                 notify_broker('update/metadata', metadata_str.encode())
                 print(f"{ecu_name}_{file_name} metadata send!")
 
@@ -316,6 +313,114 @@ def release_file():
         flash(f"배포 실패: {e}")
     return redirect(url_for('release_page'))
 
+
+@app.route('/integrated_firmware_list')
+def integrated_firmware_list():
+    conn = pymysql.connect(
+        host=rds_host,
+        user=rds_user,
+        password=rds_password,
+        database=rds_database,
+        port=rds_port
+    )
+    cursor = conn.cursor()
+
+    sql = """
+        SELECT 
+            i.id, i.version_name,
+            m.version AS motor_version,
+            t.version AS transmission_version,
+            b.version AS bms_version,
+            a.version AS abs_version,
+            br.version AS brake_version,
+            s.version AS steering_version,
+            ad.version AS adas_version,
+            v.version AS vum_version,
+            te.version AS telematic_version,
+            r.version AS rain_version,
+            il.version AS illuminate_version,
+            l.version AS light_version,
+            se.version AS seat_version,
+            o.version AS obd_version,
+            c.version AS cluster_version,
+            i.release_datetime
+        FROM integrated_firmware i
+        LEFT JOIN ecu_firmware m  ON i.motor_fw_id = m.id
+        LEFT JOIN ecu_firmware t  ON i.transmission_fw_id = t.id
+        LEFT JOIN ecu_firmware b  ON i.bms_fw_id = b.id
+        LEFT JOIN ecu_firmware a  ON i.abs_fw_id = a.id
+        LEFT JOIN ecu_firmware br ON i.brake_fw_id = br.id
+        LEFT JOIN ecu_firmware s  ON i.steering_fw_id = s.id
+        LEFT JOIN ecu_firmware ad ON i.adas_fw_id = ad.id
+        LEFT JOIN ecu_firmware v  ON i.vum_fw_id = v.id
+        LEFT JOIN ecu_firmware te ON i.telematic_fw_id = te.id
+        LEFT JOIN ecu_firmware r  ON i.rain_fw_id = r.id
+        LEFT JOIN ecu_firmware il ON i.illuminate_fw_id = il.id
+        LEFT JOIN ecu_firmware l  ON i.light_fw_id = l.id
+        LEFT JOIN ecu_firmware se ON i.seat_fw_id = se.id
+        LEFT JOIN ecu_firmware o  ON i.obd_fw_id = o.id
+        LEFT JOIN ecu_firmware c  ON i.cluster_fw_id = c.id
+        ORDER BY i.release_datetime DESC
+    """
+    cursor.execute(sql)
+    rows = cursor.fetchall()
+
+    cursor.close()
+    conn.close()
+    return render_template('integrated_firmware_list.html', rows=rows)
+
+@app.route('/redeploy/<int:firmware_id>', methods=['POST'])
+def redeploy_firmware(firmware_id):
+    pass
+#     conn = pymysql.connect(
+#         host=rds_host,
+#         user=rds_user,
+#         password=rds_password,
+#         database=rds_database,
+#         port=rds_port
+#     )
+#     cursor = conn.cursor(pymysql.cursors.DictCursor)
+
+#     cursor.execute("SELECT * FROM integrated_firmware WHERE id = %s", (firmware_id,))
+#     row = cursor.fetchone()
+
+#     if row:
+#         firmware_ids = {
+#             1: row['motor_fw_id'],
+#             2: row['transmission_fw_id'],
+#             3: row['bms_fw_id'],
+#             4: row['abs_fw_id'],
+#             5: row['brake_fw_id'],
+#             6: row['steering_fw_id'],
+#             7: row['adas_fw_id'],
+#             8: row['vum_fw_id'],
+#             9: row['telematic_fw_id'],
+#             10: row['rain_fw_id'],
+#             11: row['illuminate_fw_id'],
+#             12: row['light_fw_id'],
+#             13: row['seat_fw_id'],
+#             14: row['obd_fw_id'],
+#             15: row['cluster_fw_id']
+#         }
+
+#         for ecu_id, fw_id in firmware_ids.items():
+#             if fw_id is None:
+#                 continue
+#             cursor.execute("SELECT version, file_name, file_size FROM ecu_firmware WHERE id = %s", (fw_id,))
+#             fw = cursor.fetchone()
+#             if fw:
+#                 ecu_name = ecu_map.get(ecu_id, f"ECU{ecu_id}")
+#                 metadata_str = f"ecu_name:{ecu_name},version:{fw['version']},file_name:{fw['file_name']},file_size:{fw['file_size']}"
+#                 notify_broker('update/metadata', metadata_str.encode())
+
+#                 with open(f"tmp/{fw['file_name']}", "rb") as f:
+#                     file_bytes = f.read()
+#                 notify_broker('update/data', file_bytes)
+
+#     cursor.close()
+#     conn.close()
+#     flash("통합 펌웨어 재배포 완료")
+#     return redirect(url_for('integrated_firmware_list'))
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
