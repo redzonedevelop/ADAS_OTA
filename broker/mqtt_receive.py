@@ -1,73 +1,101 @@
 import paho.mqtt.client as mqtt
-import socket
-import os
-import struct
 from hashlib import sha256
-from crypto import decrypt_file_aes, verify_sign
+from crypto import encrypt_file_aes, decrypt_file_aes, sign_file, verify_sign
+import struct
+import socket
+import uuid
+import math
 
 aes_key_hex = ''
 aes_key = bytes.fromhex(aes_key_hex)
 public_key_path = "key/Public_key1.pem"
 
-decrypted = None
+new_aes_key_hex = ''
+new_aes_key = bytes.fromhex(new_aes_key_hex)
+private_key_path = "key/Private_key2.pem"
 
-def send_file_over_ethernet(file_path, receiver_ip, port):
-        filename = os.path.basename(file_path).encode()
-        with open(file_path, 'rb') as f:
-                data = f.read()
+cgw_ip = ""
+cgw_port = 9000
+MAX_PACKET_SIZE = 1400
 
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.connect((receiver_ip, port))
-                s.sendall(struct.pack('!I', len(filename)))
-                s.sendall(filename)
-                s.sendall(data)
-                print(f"file {file_path} send complete!")
+received_part = {"data": None, "sign": None, "type": None}
+
+def send_ethernet(message, receiver_ip, port):
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.sendto(message, (receiver_ip, port))
+    #print(f"send complete")
+    sock.close()
+
+def notify_ethernet(data, type):
+    global received_part
+
+    if type == "metadata":
+        type_byte = b'\x01'
+    elif type == "data":
+        type_byte = b'\x02'
+    else:
+        print("no type error")
+        return
+
+    iv, cipher_text = encrypt_file_aes(data, new_aes_key)
+    encrypt_data = iv + cipher_text
+    signature = sign_file(data, private_key_path)
+
+    raw_payload = (
+        type_byte +
+        struct.pack('!I', len(encrypt_data)) + encrypt_data +
+        struct.pack('!I', len(signature)) + signature
+    )
+
+    transfer_id = uuid.uuid4().bytes[:4]
+    total_parts = math.ceil(len(raw_payload) / MAX_PACKET_SIZE)
+
+    for index in range(total_parts):
+        part_data = raw_payload[index * MAX_PACKET_SIZE : (index + 1) * MAX_PACKET_SIZE]
+
+        header = ( type_byte + transfer_id + total_parts.to_bytes(2, 'big') + index.to_bytes(2, 'big') )
+        packet = header + part_data
+        send_ethernet(packet, cgw_ip, cgw_port)
+        print(f"send: {index+1}/{total_parts}, size: {len(packet)}B")
+        # payload = (type_byte + struct.pack('!I', len(encrypt_data)) + encrypt_data + struct.pack('!I', len(signature)) + si>
 
 def on_message(client, userdata, msg):
-    global decrypted
+    global received_part
 
-    if msg.topic == "update/metadata/data":
+    if msg.topic.endswith("/data"):
         data = msg.payload
         iv = data[:16]
         cipher_text = data[16:]
 
         try:
             decrypted = decrypt_file_aes(cipher_text, aes_key, iv)
-            print("message: ", decrypted.decode())
+            #print("message: ", decrypted.decode())
+            print("message receive")
+            received_part["data"] = decrypted
+
+            if "metadata" in msg.topic:
+                received_part["type"] = "metadata"
+            elif "data" in msg.topic:
+                received_part["type"] = "data"
+
         except Exception as e:
-            print("fail: ", e)
+            print("message fail: ", e)
 
-    elif msg.topic == "update/data/data":
-        data = msg.payload
-        iv = data[:16]
-        cipher_text = data[16:]
+    elif msg.topic.endswith("/sign"):
+        received_part["sign"] = msg.payload
 
-        try:
-            decrypted = decrypt_file_aes(cipher_text, aes_key, iv)
-            print("message: ", decrypted.decode())
-        except Exception as e:
-            print("fail: ", e)
+        if received_part["data"] is None:
+            print("no data")
+            return
 
-    elif msg.topic == "update/metadata/sign":
-        signature = msg.payload
-        is_valid = verify_sign(signature, decrypted, public_key_path)
-        print("success" if is_valid else "fail")
+        is_valid = verify_sign (received_part["sign"], received_part["data"], public_key_path)
+        if not is_valid:
+            print("verify fail")
+        else:
+            print("verify success")
+            notify_ethernet(received_part["data"], received_part["type"])
 
-    elif msg.topic == "update/data/sign":
-        signature = msg.payload
-        is_valid = verify_sign(signature, decrypted, public_key_path)
-        print("success" if is_valid else "fail")
-        
-        # file_bytes = base64.b64decode(filedata)
-        # save_path = f"./{filename}"
-        # with open(save_path, 'wb') as f:
-        #         f.write(file_bytes)
-        #         print(f"file {save_path} save complete!")
-
-        # receiver_ip = ""
-        # port = 9000
-        # send_file_over_ethernet(save_path, receiver_ip, port)
-
+        received_part = {"data": None, "sign": None, "type": None}
 
 client = mqtt.Client()
 client.username_pw_set("", "")
@@ -77,5 +105,4 @@ client.subscribe("update/metadata/data")
 client.subscribe("update/metadata/sign")
 client.subscribe("update/data/data")
 client.subscribe("update/data/sign")
-
 client.loop_forever()
