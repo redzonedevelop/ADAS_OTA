@@ -2,6 +2,17 @@
 
 {% block content %}
     <h2>통합 펌웨어 목록</h2>
+
+    {% with messages = get_flashed_messages() %}
+      {% if messages %}
+        <div style="padding: 10px; background-color: #ddf; border: 1px solid #99c; margin-bottom: 20px;">
+          {% for message in messages %}
+            <p>{{ message }}</p>
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% endwith %}
+
     <table border="1" cellpadding="5" style="border-collapse: collapse;">
         <tr>
             <th>ID</th>
@@ -34,11 +45,15 @@
             <td>{{ row[17] }}</td>
             <td>
                 {% if loop.first %}
-                    <form action="{{ url_for('redeploy_firmware', firmware_id=row[0]) }}" method="post">
+                    <form action="{{ url_for('redeploy_firmware', intergrated_firmware_id=row[0]) }}" method="post">
+                        <button type="submit">🔄 재배포</button>
+                    </form>
+                {% elif loop.index == 2 %}
+                    <form action="{{ url_for('redeploy_firmware', intergrated_firmware_id=row[1]) }}" method="post">
                         <button type="submit">🔄 재배포</button>
                     </form>
                 {% else %}
-                -
+                    -
                 {% endif %}
             </td>
         </tr>

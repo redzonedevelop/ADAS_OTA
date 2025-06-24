@@ -7,6 +7,7 @@ import pymysql.cursors
 from datetime import datetime, timedelta, timezone
 from crypto import compute_password_hash, encrypt_file_aes, sign_file
 import time
+import struct
 
 app = Flask(__name__)
 app.secret_key = 'redzone'
@@ -161,22 +162,31 @@ def firmware_list():
         title='펌웨어 전체 목록'
     )
 
-def notify_broker(topic_base, encode_plain):
+def notify_broker(topic, encode_plain):
     # aes 암호화
     iv, cipher_text = encrypt_file_aes(encode_plain, aes_key)
-    mqtt_payload = iv + cipher_text
+    encrypted_data = iv + cipher_text
 
     # 서명 생성
     signature = sign_file(encode_plain, private_key_path)
+    
+    # 합치기
+    payload = (
+        struct.pack("!I", len(encrypted_data)) + encrypted_data +
+        struct.pack("!I", len(signature)) + signature
+    )
 
     # mqtt 연결
     client = mqtt.Client()
     client.username_pw_set("", "")
     client.connect("", 1883, 60)
 
-    # 전송
-    client.publish(f"{topic_base}/data", mqtt_payload)
-    client.publish(f"{topic_base}/sign", signature)
+    # mqtt 전송
+    res = client.publish(topic, payload)
+    if res.rc != mqtt.MQTT_ERR_SUCCESS:
+        print("fail")
+    else:
+        print("success")
 
     # 종료
     #time.sleep(1)
@@ -282,17 +292,16 @@ def send_firmware_via_mqtt(firmware_ids):
                 file_name = row[1]
                 file_size = row[2]
                 ecu_name = ecu_map.get(ecu_id, f"ecu{ecu_id}")
-
-                metadata_str = f"ecu_id:{ecu_id},version:{version},file_name:{file_name},file_size:{file_size}"
-                notify_broker('update/metadata', metadata_str.encode())
-                print(f"{ecu_name}_{file_name} metadata send!")
+                metadata_str = f"ecu_id:{ecu_id},version:{version},file_name:{file_name},file_size:{file_size}="
 
                 local_path = f"tmp/{file_name}"
                 s3.download_file(S3_BUCKET, file_name, local_path)
 
                 with open(local_path, "rb") as f:
                     file_bytes = f.read()
-                notify_broker('update/data', file_bytes)
+
+                data = metadata_str.encode() + file_bytes
+                notify_broker('update', data)
                 print(f"{ecu_name}_{file_name} data send!")
 
     except Exception as e:
@@ -369,58 +378,69 @@ def integrated_firmware_list():
     conn.close()
     return render_template('integrated_firmware_list.html', rows=rows)
 
-@app.route('/redeploy/<int:firmware_id>', methods=['POST'])
-def redeploy_firmware(firmware_id):
-    pass
-#     conn = pymysql.connect(
-#         host=rds_host,
-#         user=rds_user,
-#         password=rds_password,
-#         database=rds_database,
-#         port=rds_port
-#     )
-#     cursor = conn.cursor(pymysql.cursors.DictCursor)
+@app.route('/redeploy/<int:intergrated_firmware_id>', methods=['POST'])
+def redeploy_firmware(intergrated_firmware_id):
+    #print(intergrated_firmware_id)
 
-#     cursor.execute("SELECT * FROM integrated_firmware WHERE id = %s", (firmware_id,))
-#     row = cursor.fetchone()
+    conn = pymysql.connect(
+        host=rds_host,
+        user=rds_user,
+        password=rds_password,
+        database=rds_database,
+        port=rds_port
+    )
+    cursor = conn.cursor()
 
-#     if row:
-#         firmware_ids = {
-#             1: row['motor_fw_id'],
-#             2: row['transmission_fw_id'],
-#             3: row['bms_fw_id'],
-#             4: row['abs_fw_id'],
-#             5: row['brake_fw_id'],
-#             6: row['steering_fw_id'],
-#             7: row['adas_fw_id'],
-#             8: row['vum_fw_id'],
-#             9: row['telematic_fw_id'],
-#             10: row['rain_fw_id'],
-#             11: row['illuminate_fw_id'],
-#             12: row['light_fw_id'],
-#             13: row['seat_fw_id'],
-#             14: row['obd_fw_id'],
-#             15: row['cluster_fw_id']
-#         }
+    sql = """
+        SELECT 
+            motor_fw_id,
+            transmission_fw_id,
+            bms_fw_id,
+            abs_fw_id,
+            brake_fw_id,
+            steering_fw_id,
+            adas_fw_id,
+            vum_fw_id,
+            telematic_fw_id,
+            rain_fw_id,
+            illuminate_fw_id,
+            light_fw_id,
+            seat_fw_id,
+            obd_fw_id,
+            cluster_fw_id
+        FROM integrated_firmware
+        WHERE id = %s
+    """
+    cursor.execute(sql, (intergrated_firmware_id,))
+    row = cursor.fetchone()
 
-#         for ecu_id, fw_id in firmware_ids.items():
-#             if fw_id is None:
-#                 continue
-#             cursor.execute("SELECT version, file_name, file_size FROM ecu_firmware WHERE id = %s", (fw_id,))
-#             fw = cursor.fetchone()
-#             if fw:
-#                 ecu_name = ecu_map.get(ecu_id, f"ECU{ecu_id}")
-#                 metadata_str = f"ecu_name:{ecu_name},version:{fw['version']},file_name:{fw['file_name']},file_size:{fw['file_size']}"
-#                 notify_broker('update/metadata', metadata_str.encode())
+    cursor.close()
+    conn.close()
 
-#                 with open(f"tmp/{fw['file_name']}", "rb") as f:
-#                     file_bytes = f.read()
-#                 notify_broker('update/data', file_bytes)
+    # ecu_id: 1 ~ 16 에 매핑
+    firmware_ids = {
+        0: row[0],   # motor
+        1: row[1],   # transmission
+        2: row[2],   # bms
+        5: row[3],   # abs
+        4: row[4],   # brake
+        6: row[5],   # steering
+        8: row[6],   # adas
+        20: row[7],  # vum
+        21: row[8],  # telematic
+        12: row[9],  # rain
+        13: row[10], # illuminate
+        14: row[11], # light
+        15: row[12], # seat
+        16: row[13], # obd
+        17: row[14]  # cluster
+    }
 
-#     cursor.close()
-#     conn.close()
-#     flash("통합 펌웨어 재배포 완료")
-#     return redirect(url_for('integrated_firmware_list'))
+    # 실제 전송
+    send_firmware_via_mqtt(firmware_ids)
+    flash("재배포 완료!")
+
+    return redirect(url_for('integrated_firmware_list'))
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)

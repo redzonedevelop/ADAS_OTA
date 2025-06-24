@@ -18,31 +18,18 @@ cgw_ip = ""
 cgw_port = 9000
 MAX_PACKET_SIZE = 1400
 
-received_part = {"data": None, "sign": None, "type": None}
-
 def send_ethernet(message, receiver_ip, port):
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.sendto(message, (receiver_ip, port))
     #print(f"send complete")
-    sock.close()
+    sock.close
 
-def notify_ethernet(data, type):
-    global received_part
-
-    if type == "metadata":
-        type_byte = b'\x01'
-    elif type == "data":
-        type_byte = b'\x02'
-    else:
-        print("no type error")
-        return
-
+def notify_ethernet(data):
     iv, cipher_text = encrypt_file_aes(data, new_aes_key)
     encrypt_data = iv + cipher_text
     signature = sign_file(data, private_key_path)
 
     raw_payload = (
-        type_byte +
         struct.pack('!I', len(encrypt_data)) + encrypt_data +
         struct.pack('!I', len(signature)) + signature
     )
@@ -53,56 +40,43 @@ def notify_ethernet(data, type):
     for index in range(total_parts):
         part_data = raw_payload[index * MAX_PACKET_SIZE : (index + 1) * MAX_PACKET_SIZE]
 
-        header = ( type_byte + transfer_id + total_parts.to_bytes(2, 'big') + index.to_bytes(2, 'big') )
+        header = (
+            transfer_id +
+            total_parts.to_bytes(2, 'big') +
+            index.to_bytes(2, 'big')
+        )
         packet = header + part_data
         send_ethernet(packet, cgw_ip, cgw_port)
         print(f"send: {index+1}/{total_parts}, size: {len(packet)}B")
-        # payload = (type_byte + struct.pack('!I', len(encrypt_data)) + encrypt_data + struct.pack('!I', len(signature)) + si>
 
 def on_message(client, userdata, msg):
-    global received_part
 
-    if msg.topic.endswith("/data"):
-        data = msg.payload
-        iv = data[:16]
-        cipher_text = data[16:]
-
+    if msg.topic == "update":
         try:
+            data = msg.payload
+            len_data = struct.unpack('!I', data[:4])[0]
+            cipher_data = data[4:4+len_data]
+
+            sig_offset = 4 + len_data
+            len_sig = struct.unpack('!I', data[sig_offset:sig_offset+4])[0]
+            signature = data[sig_offset+4 : sig_offset+4+len_sig]
+
+            iv = cipher_data[:16]
+            cipher_text = cipher_data[16:]
             decrypted = decrypt_file_aes(cipher_text, aes_key, iv)
-            #print("message: ", decrypted.decode())
-            print("message receive")
-            received_part["data"] = decrypted
 
-            if "metadata" in msg.topic:
-                received_part["type"] = "metadata"
-            elif "data" in msg.topic:
-                received_part["type"] = "data"
-
+            if verify_sign(signature, decrypted, public_key_path):
+                print("sign success")
+                notify_ethernet(decrypted)
+            else:
+                print("sign fail")
         except Exception as e:
             print("message fail: ", e)
 
-    elif msg.topic.endswith("/sign"):
-        received_part["sign"] = msg.payload
-
-        if received_part["data"] is None:
-            print("no data")
-            return
-
-        is_valid = verify_sign (received_part["sign"], received_part["data"], public_key_path)
-        if not is_valid:
-            print("verify fail")
-        else:
-            print("verify success")
-            notify_ethernet(received_part["data"], received_part["type"])
-
-        received_part = {"data": None, "sign": None, "type": None}
 
 client = mqtt.Client()
-client.username_pw_set("", "")
+client.username_pw_set("admin", "1234")
 client.on_message = on_message
 client.connect("localhost", 1883)
-client.subscribe("update/metadata/data")
-client.subscribe("update/metadata/sign")
-client.subscribe("update/data/data")
-client.subscribe("update/data/sign")
+client.subscribe("update")
 client.loop_forever()
