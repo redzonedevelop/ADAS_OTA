@@ -1,0 +1,43 @@
+{# {% extends "layout.html" %}
+{% block content %}
+<h2>배포</h2>
+
+{% with messages = get_flashed_messages() %}
+  {% if messages %}
+    <script>alert("{{ messages[0] }}");</script>
+  {% endif %}
+{% endwith %}
+<form action="{{ url_for('release_file') }}" method="post" enctype="multipart/form-data">
+
+    <button type="submit">배포</button>
+</form>
+{% endblock %} #}
+
+{% extends "layout.html" %}
+{% block content %}
+<h2>통합 버전 배포</h2>
+
+{% with messages = get_flashed_messages() %}
+  {% if messages %}
+    <script>alert("{{ messages[0] }}");</script>
+  {% endif %}
+{% endwith %}
+
+<form action="{{ url_for('release_file') }}" method="post">
+  <label for="version_name">통합 버전 이름:</label>
+  <input type="text" name="version_name" required><br><br>
+
+  {% for ecu_id, ecu_name in ecu_map.items() %}
+    <label for="ecu_{{ ecu_id }}">{{ ecu_name }} 버전 선택:</label>
+    <select name="ecu_{{ ecu_id }}">
+      <option value="none">포함안함</option>
+      {% for fw in ecu_data[ecu_id] %}
+        <option value="{{ fw.id }}">{{ fw.version }} - {{ fw.file_name }}</option>
+      {% endfor %}
+    </select>
+    <br><br>
+  {% endfor %}
+
+  <button type="submit">통합 버전 만들기 및 배포</button>
+</form>
+{% endblock %}
